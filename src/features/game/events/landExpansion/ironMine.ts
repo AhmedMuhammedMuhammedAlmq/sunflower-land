@@ -27,14 +27,13 @@ import { updateBoostUsed } from "features/game/types/updateBoostUsed";
 import cloneDeep from "lodash.clonedeep";
 import {
   canUseYieldBoostAOE,
-  getRockCycleStartedAt,
   isCollectibleOnFarm,
   setAOELastUsed,
 } from "features/game/lib/aoe";
 import { prngChance } from "lib/prng";
 import { KNOWN_IDS } from "features/game/types";
 import { IRON_RECOVERY_TIME } from "features/game/lib/constants";
-import { canMine } from "features/game/lib/resourceNodes";
+import { canMine, getMineReadyAt } from "features/game/lib/resourceNodes";
 
 export type LandExpansionIronMineAction = {
   type: "ironRock.mined";
@@ -52,6 +51,15 @@ type GetMinedAtArgs = {
   createdAt: number;
   game: GameState;
 };
+
+/**
+ * The iron's real recovery duration (ms), for gating the yield-AOE re-use. It
+ * is derived from the live speed windows, so an active boost shortens it to match
+ * the actual recovery.
+ */
+function getIronRecoveryDurationMs(rock: Rock, game: GameState): number {
+  return getMineReadyAt(rock, "Iron Rock", game) - rock.stone.minedAt;
+}
 
 /**
  * Single source of truth for iron recovery boosts. Used by both getMinedAt (game) and UI.
@@ -221,7 +229,8 @@ export function getIronDropAmount({
         updatedAoe,
         "Emerald Turtle",
         { dx, dy },
-        getRockCycleStartedAt(rock),
+        getIronRecoveryDurationMs(rock, game),
+        createdAt,
       );
 
       if (canUseAoe) {
@@ -354,10 +363,10 @@ export function mineIron({
       { game: stateCopy },
     );
 
-    ironRock.stone = { minedAt: time, cycleStartedAt: createdAt };
+    ironRock.stone = { minedAt: time };
     // Speed-rate model: real minedAt + permanent-only baseDurationMs. Temporary
     // boosts are derived live from windows, so there's no baked discount; keep
-    // boostedTime at 0.
+    // boostedTime at 0 so the yield-AOE budget uses the real windowed duration.
     ironRock.stone.baseDurationMs = baseDurationMs;
     ironRock.stone.boostedTime = 0;
 

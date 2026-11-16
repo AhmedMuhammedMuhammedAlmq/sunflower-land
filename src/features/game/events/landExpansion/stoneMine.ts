@@ -30,7 +30,6 @@ import cloneDeep from "lodash.clonedeep";
 import { updateBoostUsed } from "features/game/types/updateBoostUsed";
 import {
   canUseYieldBoostAOE,
-  getRockCycleStartedAt,
   isCollectibleOnFarm,
   setAOELastUsed,
 } from "features/game/lib/aoe";
@@ -38,7 +37,7 @@ import { KNOWN_IDS } from "features/game/types";
 import { prngChance } from "lib/prng";
 import { produce } from "immer";
 import { STONE_RECOVERY_TIME } from "features/game/lib/constants";
-import { canMine } from "features/game/lib/resourceNodes";
+import { canMine, getMineReadyAt } from "features/game/lib/resourceNodes";
 import { mfTrack } from "lib/moonforgeAnalytics";
 
 export type LandExpansionStoneMineAction = {
@@ -52,6 +51,15 @@ type Options = {
   createdAt?: number;
   farmId: number;
 };
+
+/**
+ * The stone's real recovery duration (ms), for gating the yield-AOE re-use. It
+ * is derived from the live speed windows, so an active boost shortens it to match
+ * the actual recovery.
+ */
+function getStoneRecoveryDurationMs(rock: Rock, game: GameState): number {
+  return getMineReadyAt(rock, "Stone Rock", game) - rock.stone.minedAt;
+}
 
 type GetMinedAtArgs = {
   skills: Skills;
@@ -245,7 +253,8 @@ export function getStoneDropAmount({
         updatedAoe,
         "Emerald Turtle",
         { dx, dy },
-        getRockCycleStartedAt(rock),
+        getStoneRecoveryDurationMs(rock, game),
+        createdAt,
       );
 
       if (canUseAoe) {
@@ -281,7 +290,8 @@ export function getStoneDropAmount({
         updatedAoe,
         "Tin Turtle",
         { dx, dy },
-        getRockCycleStartedAt(rock),
+        getStoneRecoveryDurationMs(rock, game),
+        createdAt,
       );
 
       if (canUseAoe) {
@@ -433,10 +443,10 @@ export function mineStone({
     const { boostsUsed: boostedTimeBoostsUsed } =
       getStoneRecoveryTimeForDisplay({ game: stateCopy });
 
-    rock.stone = { minedAt: time, cycleStartedAt: createdAt };
+    rock.stone = { minedAt: time };
     // Speed-rate model: real minedAt + permanent-only baseDurationMs. Temporary
     // boosts are derived live from windows, so there's no baked discount; keep
-    // boostedTime at 0.
+    // boostedTime at 0 so the yield-AOE budget uses the real windowed duration.
     rock.stone.baseDurationMs = baseDurationMs;
     rock.stone.boostedTime = 0;
 
